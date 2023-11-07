@@ -18,8 +18,11 @@ def read_command(buffer):
         return None, buffer
 
 
-def main():
+def main(ready_event=None):
     server = socket.create_server(("localhost", 6379), reuse_port=True)
+
+    if ready_event:
+        ready_event.set()
     
     conn, addr = server.accept()
     print(f"Accepted new connection from {addr}")
