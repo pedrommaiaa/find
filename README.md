@@ -1,3 +1,3 @@
 # Jet
 
-A (mini) highly performant in-memory key-value data store.
+A tiny in-memory key-value data store inspired by Redis.
