@@ -18,11 +18,13 @@ class Jet:
             while b"\r\n" in self.buffer:
                 command = self.read_command()
                 if command is not None:
-                    if command == b"ping":
+                    if command[0].lower() == b"ping":
                         writer.write(b"+PONG\r\n")
+                    elif command[0].lower() == b"echo" and len(command) == 2:
+                        message = command[1]
+                        writer.write(b"$" + str(len(message)).encode() + b"\r\n" + message + b"\r\n")
                     else:
                         writer.write(b"-ERR unknown command\r\n")
-                        self.buffer = b""
                     await writer.drain()
 
         writer.close()
@@ -30,23 +32,34 @@ class Jet:
 
 
     def read_command(self):
-        if b"\r\n" in self.buffer:
-            parts = self.buffer.split(b"\r\n", 1)
-            if parts[0] == b"*1":
-                length_command = parts[1].split(b"\r\n", 1)
-                length = int(length_command[0].lstrip(b"$"))
+        if not self.buffer:
+            return None
+        
+        lines = self.buffer.split(b"\r\n")
+        if lines[0].startswith(b"*"):
+            num_args = int(lines[0][1:])
+            command_parts = []
+            idx = 1
 
-                if len(length_command[1]) >= length + 2:
-                    command_data = length_command[1][:length].lower()
-                    self.buffer = length_command[1][length + 2:]
-                    return command_data
+            while num_args > 0:
+                if idx < len(lines) and lines[idx].startswith(b"$"):
+                    length = int(lines[idx][1:])
+                    idx += 1
+                    if idx < len(lines):
+                        bulk_string = lines[idx]
+                        if len(bulk_string) != length:
+                            return None
+                        command_parts.append(bulk_string)
+                        idx += 1
+                    else:
+                        return None
                 else:
                     return None
-            else:
-                self.buffer = b""
-                return None
-        else:
-            return None
+                num_args -= 1
+            
+            self.buffer = b"\r\n".join(lines[idx:])
+            return command_parts
+
 
     async def run(self, ready_event):
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
