@@ -71,3 +71,16 @@ def test_concurrent_clients(server):
 
     for thread in threads:
         thread.join()
+
+def test_echo_response(server):
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(('localhost', 6379))
+    try:
+        message = b"Hello, World!"
+        message_length = len(message)
+        client.sendall(b"*2\r\n$4\r\nECHO\r\n$" + str(message_length).encode() + b"\r\n" + message + b"\r\n")
+        expected_response = b"$" + str(message_length).encode() + b"\r\n" + message + b"\r\n"
+        response = read_response(client, expected_response)
+        assert response == expected_response, f"Expected '{expected_response.decode()}', got '{response.decode()}'"
+    finally:
+        client.close()
