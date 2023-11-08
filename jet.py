@@ -1,9 +1,11 @@
+import time
 import asyncio
 from multiprocessing import Event
 
 class Jet:
     def __init__(self, host='localhost', port=6379):
         self.store = {}
+        self.expiry = {}
         self.host = host
         self.port = port
         self.buffer = b""
@@ -24,16 +26,29 @@ class Jet:
                     elif command[0].lower() == b"echo" and len(command) == 2:
                         message = command[1]
                         writer.write(b"$" + str(len(message)).encode() + b"\r\n" + message + b"\r\n")
-                    elif command[0].lower() == b"set" and len(command) == 3:
+                    elif command[0].lower() == b"set":
                         key, value = command[1], command[2]
+                        expiry = None
+                        if len(command) > 3:
+                            for i in range(3, len(command), 2):
+                                if command[i].lower() == b"px":
+                                    expiry = int(command[i+1])
+                                    break
                         self.store[key] = value
+                        if expiry:
+                            self.expiry[key] = time.time() * 1000 + expiry
                         writer.write(b"+OK\r\n")
                     elif command[0].lower() == b"get" and len(command) == 2:
                         key = command[1]
                         value = self.store.get(key)
-                        if value is not None:
+                        if value is not None and key not in self.expiry:
+                            writer.write(b"$" + str(len(value)).encode() + b"\r\n" + value + b"\r\n")
+                        elif key in self.expiry and self.expiry[key] > time.time() * 1000:
                             writer.write(b"$" + str(len(value)).encode() + b"\r\n" + value + b"\r\n")
                         else:
+                            if key in self.expiry:
+                                del self.store[key]
+                                del self.expiry[key]
                             writer.write(b"$-1\r\n")
                     else:
                         writer.write(b"-ERR unknown command\r\n")

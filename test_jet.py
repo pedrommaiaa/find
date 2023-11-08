@@ -1,3 +1,4 @@
+import time
 import socket
 import pytest
 import asyncio
@@ -93,6 +94,26 @@ def test_set_response(server):
         client.sendall(b"*3\r\n$3\r\nSET\r\n$5\r\nHello\r\n$5\r\nWorld\r\n")
         response = read_response(client, b"+OK\r\n")
         assert response == b"+OK\r\n", f"Expected '+OK\\r\\n', got '{response.decode()}'"
+    finally:
+        client.close()
+
+def test_set_with_expiry(server):
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(('localhost', 6379))
+    try:
+        # Set the value 'temp' at key 'expire_key' with an expiry of 1000 milliseconds (1 second)
+        client.sendall(b"*5\r\n$3\r\nSET\r\n$10\r\nexpire_key\r\n$4\r\ntemp\r\n$2\r\nPX\r\n$4\r\n1000\r\n")
+        set_response = read_response(client, b"+OK\r\n")
+        assert set_response == b"+OK\r\n", f"Expected '+OK\\r\\n' after SET with expiry, got '{set_response.decode()}'"
+
+        # Sleep for a duration longer than the expiry time to ensure the key has expired
+        time.sleep(1.5)  # Sleep for 1.5 seconds to ensure expiry has passed
+
+        # Attempt to get the value of 'expire_key', expecting it to have expired
+        client.sendall(b"*2\r\n$3\r\nGET\r\n$10\r\nexpire_key\r\n")
+        expected_get_response = b"$-1\r\n"  # This is the response when the key does not exist
+        get_response = read_response(client, expected_get_response)
+        assert get_response == expected_get_response, f"Expected '{expected_get_response.decode()}' for expired key, got '{get_response.decode()}'"
     finally:
         client.close()
 
