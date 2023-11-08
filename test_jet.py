@@ -1,8 +1,13 @@
 import socket
 import pytest
+import asyncio
 import threading
 from multiprocessing import Process, Event
-from server import run_server
+from jet import Jet
+
+def start_server(ready_event):
+    jet = Jet()
+    asyncio.run(jet.run(ready_event))
 
 def read_response(client, expected_response, buffer_size=1024):
     total_data = []
@@ -19,7 +24,7 @@ def read_response(client, expected_response, buffer_size=1024):
 @pytest.fixture(scope="function")
 def server():
     ready_event = Event()
-    server_process = Process(target=run_server, args=(ready_event,), daemon=True)
+    server_process = Process(target=start_server, args=(ready_event,), daemon=True)
     server_process.start()
     ready_event.wait()
     yield
