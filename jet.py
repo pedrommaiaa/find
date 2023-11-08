@@ -1,23 +1,22 @@
 import asyncio
 from multiprocessing import Event
-from typing import Optional, Tuple, Union
 
 class Jet:
-    def __init__(self, host: str ='localhost', port: int =6379) -> None:
-        self.host: str = host
-        self.port: int = port
-        self.buffer: bytes = b""
+    def __init__(self, host='localhost', port=6379):
+        self.host = host
+        self.port = port
+        self.buffer = b""
 
-    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def handle_client(self, reader, writer):
         while True:
-            data: bytes = await reader.read(1024)
+            data = await reader.read(1024)
             if not data:
                 break
             
             self.buffer += data
 
             while b"\r\n" in self.buffer:
-                command: Optional[bytes] = self.read_command()
+                command = self.read_command()
                 if command is not None:
                     if command == b"ping":
                         writer.write(b"+PONG\r\n")
@@ -30,15 +29,15 @@ class Jet:
         await writer.wait_closed()
 
 
-    def read_command(self) -> Optional[bytes]:
+    def read_command(self):
         if b"\r\n" in self.buffer:
-            parts: Tuple[bytes, bytes] = self.buffer.split(b"\r\n", 1)
+            parts = self.buffer.split(b"\r\n", 1)
             if parts[0] == b"*1":
-                length_command: Tuple[bytes, bytes] = parts[1].split(b"\r\n", 1)
-                length: int = int(length_command[0].lstrip(b"$"))
+                length_command = parts[1].split(b"\r\n", 1)
+                length = int(length_command[0].lstrip(b"$"))
 
                 if len(length_command[1]) >= length + 2:
-                    command_data: bytes = length_command[1][:length].lower()
+                    command_data = length_command[1][:length].lower()
                     self.buffer = length_command[1][length + 2:]
                     return command_data
                 else:
@@ -48,10 +47,10 @@ class Jet:
                 return None
         else:
             return None
-    
-    async def run(self, ready_event: Optional[Union[asyncio.Event, Event]] = None) -> None:
-        server: asyncio.AbstractServer = await asyncio.start_server(self.handle_client, self.host, self.port)
-     
+
+    async def run(self, ready_event):
+        server = await asyncio.start_server(self.handle_client, self.host, self.port)
+
         if ready_event:
             ready_event.set()
 
