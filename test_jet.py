@@ -84,3 +84,32 @@ def test_echo_response(server):
         assert response == expected_response, f"Expected '{expected_response.decode()}', got '{response.decode()}'"
     finally:
         client.close()
+
+def test_set_response(server):
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(('localhost', 6379))
+    try:
+        # Sending SET command to store the value 'World' at key 'Hello'
+        client.sendall(b"*3\r\n$3\r\nSET\r\n$5\r\nHello\r\n$5\r\nWorld\r\n")
+        response = read_response(client, b"+OK\r\n")
+        assert response == b"+OK\r\n", f"Expected '+OK\\r\\n', got '{response.decode()}'"
+    finally:
+        client.close()
+
+def test_get_response(server):
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(('localhost', 6379))
+    try:
+        # First, set the value 'World' at key 'Hello'
+        client.sendall(b"*3\r\n$3\r\nSET\r\n$5\r\nHello\r\n$5\r\nWorld\r\n")
+        # Wait for the OK response from the SET command
+        set_response = read_response(client, b"+OK\r\n")
+        assert set_response == b"+OK\r\n", f"Expected '+OK\\r\\n' after SET, got '{set_response.decode()}'"
+
+        # Then, retrieve the value 'World' at key 'Hello'
+        client.sendall(b"*2\r\n$3\r\nGET\r\n$5\r\nHello\r\n")
+        expected_get_response = b"$5\r\nWorld\r\n"
+        get_response = read_response(client, expected_get_response)
+        assert get_response == expected_get_response, f"Expected '{expected_get_response.decode()}', got '{get_response.decode()}'"
+    finally:
+        client.close()
