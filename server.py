@@ -1,4 +1,27 @@
-import socket
+import asyncio
+
+async def handle_client(reader, writer):
+    buffer = b""
+    while True:
+        data = await reader.read(1024)
+        if not data:
+            break
+        
+        buffer += data
+
+        while b"\r\n" in buffer:
+            command, buffer = read_command(buffer)
+            if command is not None:
+                if command == b"ping":
+                    writer.write(b"+PONG\r\n")
+                else:
+                    writer.write(b"-ERR unknown command\r\n")
+                    buffer = b""
+                await writer.drain()
+
+    writer.close()
+    await writer.wait_closed()
+
 
 def read_command(buffer):
     if b"\r\n" in buffer:
@@ -6,6 +29,7 @@ def read_command(buffer):
         if parts[0] == b"*1":
             length_command = parts[1].split(b"\r\n", 1)
             length = int(length_command[0].lstrip(b"$"))
+
             if len(length_command[1]) >= length + 2:
                 command_data = length_command[1][:length].lower()
                 remaining_buffer = length_command[1][length + 2:]
@@ -17,35 +41,17 @@ def read_command(buffer):
     else:
         return None, buffer
 
-
-def main(ready_event=None):
-    server = socket.create_server(("localhost", 6379), reuse_port=True)
+async def main(ready_event=None):
+    server = await asyncio.start_server(handle_client, 'localhost', 6379)
 
     if ready_event:
         ready_event.set()
     
-    conn, addr = server.accept()
-    print(f"Accepted new connection from {addr}")
-
-    buffer = b""
-    while True:
-        data = conn.recv(1024)
-        if not data:
-            break
-        
-        buffer += data
-
-        while b"\r\n" in buffer:
-            command, buffer = read_command(buffer)
-            if command is not None:
-                if command == b"ping":
-                    conn.sendall(b"+PONG\r\n")
-                else:
-                    conn.sendall(b"-ERR unkown command\r\n")
-                    buffer = b""
-
-    conn.close()
-    server.close()
+    async with server:
+        await server.serve_forever()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
+else:
+    def run_server(ready_event):
+        asyncio.run(main(ready_event))
