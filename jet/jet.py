@@ -32,7 +32,7 @@ class Jet:
         writer.close()
         await writer.wait_closed()
 
-    async def run(self, ready_event):
+    async def run(self, ready_event=None):
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
 
         if ready_event:
