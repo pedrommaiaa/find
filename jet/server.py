@@ -5,8 +5,21 @@ from collections import namedtuple
 
 logger = logging.getLogger(__name__)
 
-class CommandError(Exception): pass
-class Disconnect(Exception): pass
+class CommandError(Exception): 
+    """Exception raised for errors in command execution."""
+    pass
+
+class Disconnect(Exception): 
+    """Execption raised for client disconnection."""
+    pass
+
+class ProtocolError(Exception):
+    """Exception raised for protocol-related errors."""
+    pass
+
+class CommandSyntaxError(CommandError):
+    """Exception raised for command syntax errors."""
+    pass  
 
 Error = namedtuple('Error', ('message',))
 
@@ -19,29 +32,34 @@ class ProtocolHandler(object):
         }
 
     async def handle_request(self, reader, writer):
-        first_byte = await reader.read(1)
-        if not first_byte:
-            raise Disconnect()
-
         try:
+            first_byte = await reader.read(1)
+            if not first_byte:
+                raise Disconnect()
+            
+            decoded_byte = first_byte.decode()
+            if decoded_byte not in self.handlers:
+                raise ProtocolError('Invalid protocol message')
             return await self.handlers[first_byte.decode()](reader, writer)
-        except KeyError:
-            raise CommandError('bad request')
+        except Disconnect:
+            raise
+        except Exception as e:
+            # Catch-all for unexpected errors
+            logger.error(f"Unexpected error: {e}")
+            raise ProtocolError('Unexpected server error')
 
     async def handle_simple_string(self, reader, writer):
-        return (await reader.readline()).decode().rstrip('\r\n')
+        return (await self._read_and_decode(reader))
 
     async def handle_string(self, reader, writer):
-        length_line = await reader.readline()
-        length = int(length_line.decode().rstrip('\r\n'))
+        length = int(await self._read_and_decode(reader))
         if length == -1:
             return None
         string_data = await reader.read(length + 2)
         return string_data.decode()[:-2]
 
     async def handle_array(self, reader, writer):
-        num_elements_line = await reader.readline()
-        num_elements = int(num_elements_line.decode().rstrip('\r\n'))
+        num_elements = int(await self._read_and_decode(reader))
         return [await self.handle_request(reader, writer) for _ in range(num_elements)]
     
     async def write_response(self, writer, data):
@@ -50,43 +68,85 @@ class ProtocolHandler(object):
         writer.write(buf.getvalue())
         await writer.drain()
 
+    async def _read_and_decode(self, reader):
+        data = await reader.readline()
+        return data.decode().rstrip('\r\n')
+
     def _write(self, buf, data):
         if isinstance(data, str):
-            buf.write(('+' + data + '\r\n').encode('utf-8'))
+            buf.write(f"+{data}\r\n".encode('utf-8'))
         elif isinstance(data, bytes):
-            buf.write('$%d\r\n%s\r\n' % (len(data), data))
+            buf.write(f'${len(data)}\r\n{data}\r\n')
         elif isinstance(data, (list, tuple)):
-            buf.write(('*%d\r\n' % len(data)).encode('utf-8'))
+            buf.write((f'*{len(data)}\r\n').encode('utf-8'))
+            buf.write((f'*{len(data)}\r\n').encode('utf-8'))
             for item in data:
                 self._write(buf, item)
         elif data is None:
             buf.write(b'$-1\r\n')
         else:
-            raise CommandError('unrecognized type: %s' % type(data))
+            raise CommandError(f'unrecognized type: {type(data)}')
+
 
 class Server(object):
     def __init__(self, host='127.0.0.1', port=6379):
-        self._protocol = ProtocolHandler()
         self._kv = {}
-        self._commands = self.get_commands()
         self.host = host
         self.port = port
+        self._protocol = ProtocolHandler()
+        self._commands = self.get_commands()
 
     def get_commands(self):
         return {
             'PING': lambda: 'PONG'
         }
 
+    async def run(self, ready_event=None):
+        server = await asyncio.start_server(self.connection_handler, self.host, self.port)
+
+        if ready_event:
+            ready_event.set()
+
+        async with server:
+            await server.serve_forever()
+
+    async def get_response(self, data):
+        try:
+            if not isinstance(data, list):
+                try:
+                    data = data.split()
+                except Exception as e:
+                    raise CommandSyntaxError('Request must be list or simple string.')
+            if not data:
+                raise CommandSyntaxError('Missing command')
+
+            command = data[0].upper()
+            if command not in self._commands:
+                raise CommandError(f'Unrecognized command: {command}')
+            else:
+                logger.debug(f'Received {command}')
+
+            return self._commands[command](*data[1:])
+        except CommandError as e:
+            # Log and re-raise coommand-specific errors
+            logger.error(f'Command error: {e}')
+            raise
+
     async def connection_handler(self, reader, writer):
         address = writer.get_extra_info('peername')
-        logger.info('Connection received: %s:%s' % address)
+        logger.info(f'Connection received: {address[0]}:{address[1]}')
 
         while True:
             try:
                 data = await self._protocol.handle_request(reader, writer)
             except Disconnect:
-                logger.info('Client went away: %s:%s' % address)
+                logger.info(f'Client went away: {address[0]}:{address[1]}')
                 break
+            except ProtocolError as e:
+                logger.error(f'Protocol error: {e}')
+                resp = Error(e.args[0])
+                await self._protocol.write_response(writer, resp)
+                continue
 
             try:
                 resp = await self.get_response(data)
@@ -99,33 +159,6 @@ class Server(object):
         await writer.drain()
         writer.close()
         await writer.wait_closed()
-
-    async def run(self, ready_event=None):
-        server = await asyncio.start_server(self.connection_handler, self.host, self.port)
-
-        if ready_event:
-            ready_event.set()
-
-        async with server:
-            await server.serve_forever()
-
-    async def get_response(self, data):
-        if not isinstance(data, list):
-            try:
-                data = data.split()
-            except:
-                raise CommandError('Request must be list or simple string.')
-
-        if not data:
-            raise CommandError('Missing command')
-
-        command = data[0].upper()
-        if command not in self._commands:
-            raise CommandError('Unrecognized command: %s' % command)
-        else:
-            logger.debug('Received %s', command)
-
-        return self._commands[command](*data[1:])
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
