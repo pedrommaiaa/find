@@ -9,7 +9,6 @@ def start_server(ready_event):
 
 def read_response(client, expected_response, buffer_size=1024):
     total_data = []
-    data = b''
     while True:
         data = client.recv(buffer_size)
         if not data:

@@ -79,7 +79,6 @@ class ProtocolHandler(object):
             buf.write(f'${len(data)}\r\n{data}\r\n')
         elif isinstance(data, (list, tuple)):
             buf.write((f'*{len(data)}\r\n').encode('utf-8'))
-            buf.write((f'*{len(data)}\r\n').encode('utf-8'))
             for item in data:
                 self._write(buf, item)
         elif data is None:
@@ -98,7 +97,8 @@ class Server(object):
 
     def get_commands(self):
         return {
-            'PING': lambda: 'PONG'
+            'PING': lambda: 'PONG',
+            'ECHO': lambda message: message
         }
 
     async def run(self, ready_event=None):
