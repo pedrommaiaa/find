@@ -1,15 +1,14 @@
 import pytest
 import asyncio
-from jet.jet import Jet
+from jet.server import Server
 from multiprocessing import Process, Event
 
 def start_server(ready_event):
-    jet = Jet()
-    asyncio.run(jet.run(ready_event))
+    server = Server()
+    asyncio.run(server.run(ready_event))
 
 def read_response(client, expected_response, buffer_size=1024):
     total_data = []
-    data = b''
     while True:
         data = client.recv(buffer_size)
         if not data:
